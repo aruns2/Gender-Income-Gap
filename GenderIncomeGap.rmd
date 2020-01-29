@@ -1,0 +1,1357 @@
+---
+title: "Analysing the Gender Income Gap"
+author: "Arun Sharma"
+date: "12/6/2019"
+output: 
+  html_document:
+    theme: paper
+    highlight: tango
+    toc: true
+    toc_depth: 5
+---
+## Gender Income Gap and What Affects it?
+
+
+```{r, include = FALSE}
+library(tidyverse)
+library(knitr)
+library(GGally)
+library(gridExtra)
+
+options(scipen = 4)
+```
+
+```{r global_options, include=FALSE, fig.width = 10}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+>  **Loading the Data**
+
+Checking the data values to get an idea of what we are dealing with here.
+
+```{r}
+# pull the data
+income.data.raw <- read_csv("http://www.andrew.cmu.edu/user/achoulde/94842/final_project/nlsy79/nlsy79_income.csv")
+head(income.data.raw)
+```
+
+Since, the variable names are unitelligible. We sould change the columns names to more readable names for our interest variables
+
+```{r}
+#change the column names to readable alias
+colnames(income.data.raw)[which(names(income.data.raw) %in% c("R0170100","R0171800","R0214700","R0214800","R0217910","R0307100","R6839600","R7006600","R7007000","T3308200","T3308700","T3977400","T3987600","T4112200","T4112700","T4113000","T4114600"))] <- c("ambition.occ", "expec.educ","race","sex","fam.poverty78","crime.hist","no.child", "fam.poverty99","married2000", "industry", "occupation", "income","income.spouse", "famsize12", "region", "educ", "rural") 
+
+numberpersex <- income.data.raw %>%
+  group_by(sex)%>%
+  summarise(count = n())
+
+numberperrace <-income.data.raw %>%
+  group_by(race)%>%
+  summarise(count = n())
+
+
+```
+### 1. Problem Statement
+
+Is there a significant difference in income between men and women? Does the difference vary depending on other factors (e.g., education, marital status, criminal history, drug use, childhood household factors, profession, etc.)?
+
+
+### 2. About Data
+
+The National Longitudinal Survey of Youth 1979 (NLSY79) data shall be used for the purpose. The survey started with `n nrow(income.data.raw)` applicants in the year 1979. The respondents ranged between 14 to 22 years at the time of their first interview in 1979 and were between 51 to 60 in the latest survey held in 2016.
+
+The survey started with `r numberpersex$count[2]` males and `r numberpersex$count[1]` females. As for the racial distribution, the survey had `r numberperrace$count[1]` Hispanics, `r numberperrace$count[2]` Blacks and `r numberperrace$count[3]` Non-Black and Non-Hispanic respondents.
+
+### 3. Data Summary
+```{r}
+# select the relevant columns in a new dataset
+income.data.new <- income.data.raw[c("ambition.occ", "expec.educ","race","sex","fam.poverty78","crime.hist","no.child", "fam.poverty99","married2000", "industry", "occupation", "income","income.spouse", "famsize12", "region", "educ", "rural")]
+
+```
+
+#### **(a)** Structure of the Data Frame at hand
+```{r}
+# clean the income variable- our main dependent variable, removing negative values-
+str(income.data.new)
+```
+
+We see a lot of unreadable values for our variables. We have some continuous variables and majority are factor variables.
+
+#### **(b)** Summary of our outcome variable
+```{r}
+summary(income.data.new$income)
+
+```
+
+We see that the Minimum income is `r summary(income.data.new$income)[1]`, Maximum income is $`r summary(income.data.new$income)[6]` , mean income is $41134.80. Data set also has 5662 NA's. Clearly, we can not have a negative value for the income. This is our clue that we need to clean the data
+
+
+
+#### **(c)** Cleaning the outcome variable
+
+(-1) Refusal: total values =119, in total 119 people refused to answer this question.
+(-2) Don't KNow: 146 people did not know their income or wages for the last year
+(-3) Invalid Skip: 5 people did that, the numebr is too small to make any difference
+(-4) Valid Skip: total values = 7, which is too small to make any difference on our data
+(-5) for non-interview: Total number of such respondents = 5385 , these people were not interviewed in the year 2012
+
+We will start by removing these negative variables.
+
+
+
+```{r}
+# clean the income variable- our main dependent variable, removing negative values-
+income.data.new <-income.data.new %>%
+  mutate(income = na_if(income,-1),
+         income = na_if(income,-2),
+        income = na_if(income,-3),
+        income = na_if(income,-4),
+       income = na_if(income,-5))
+
+#removing rows with NA
+income.data.clean <-  income.data.new %>%
+  filter(!is.na(income))
+summarise(income.data.clean)
+
+#recode the gender as they would be frequently used
+income.data.clean <- mutate(income.data.clean, sex = recode_factor(income.data.clean$sex, `1` ="Male", `2` = "Female"))
+
+```
+
+#### **(d)** Addressing the topcoded values for income
+
+
+As mentioned in the problem statement, the top 2% of the values for the income are not the actual values but substituted average for those rows. We wish to see a comparison of how our data looks with and without top coded values. In order to see that we will contruct box plots: One with top coded value and another one after removing the top coded values for income.
+
+
+
+**Average income by sex with topcoded income**
+
+```{r}
+
+#boxplots with top coded income
+plot1 <- income.data.clean %>% 
+  group_by(sex) %>%
+    ggplot(aes(x=sex, y= income, fill = I("lightblue")))+
+  geom_boxplot()
+
+#mean with top coded income
+mean1 <- income.data.clean %>% 
+  group_by(sex) %>%
+  summarise(avg.income=mean(income))
+kable(mean1, format = "markdown", caption = "Average income by sex with topcoded income")
+```
+
+**Average income by sex without topcoded income**
+
+```{r}
+
+#removing rows with topcoded values
+income.no.topcoded <- income.data.clean %>%
+      mutate(income  = na_if(income, 343830))
+income.no.topcoded <- income.no.topcoded %>%
+  filter(!is.na(income))
+
+#mean without top-coded income
+mean2 <- income.no.topcoded %>% 
+  group_by(sex) %>%
+  summarise(avg.income=mean(income))
+kable(mean2, format ="markdown",caption = "Average income by sex without topcoded income")
+```
+
+The mean income for both the sexes have reduced. However, the reduction is extremely steep for males in comparison to females. Therby, indicating that there were more number of males in the top- coded income then females. Thus, if we were to successfully prove that the income gap exists for the people without top-coded values, we can easily extend it to the top coded value as well.
+
+Lets see the variation in box plots
+
+```{r, fig.width= 10}
+#boxplots without top coded income
+plot2<-income.no.topcoded%>% 
+  group_by(sex) %>%
+    ggplot(aes(x=sex, y= income,fill = I("lightblue")))+
+  geom_boxplot()
+# arranging the plots together
+grid.arrange(plot1 + 
+  ggtitle("Income with top coded"), plot2 +
+    ggtitle("Income top-coded excluded"),
+  ncol =2)
+
+```
+
+
+After removing the topcoded values the mean income of males and females comes down but the rest of the distribution does not change.
+
+
+```{r}
+
+# mutate to recode
+income.no.topcoded <- mutate(
+  income.no.topcoded, sex = recode_factor(income.no.topcoded$sex, `1` ="Male", `2` = "Female"),
+  race = recode_factor(income.no.topcoded$race, `1` = "Hispanic", `2` = "Black", `3` ="notBlackHispanic"),
+ fam.poverty78 = recode_factor(income.no.topcoded$fam.poverty78, `1` = "InPoverty", `0` = "NotINPOverty"), 
+crime.hist = recode_factor(income.no.topcoded$crime.hist, `1` = "Never Charged", `0` = "Charged"),
+married2000 = recode_factor(income.no.topcoded$married2000, `0` = "NeverMarried", `1` = "Married", `2` ="separated", `3` = "divorced", `6` = "widowed"), 
+rural = recode_factor(income.no.topcoded$rural, `0` = "Rural", `1` = "Urban", `2` ="Unknown"),
+region = recode_factor(income.no.topcoded$region, `1` = "Northeast", `2` ="Northcentral", `3` = "South",`4` = "West"))
+
+
+```
+
+```{r, fig.width=10}
+
+#mean comparisons for incomes of respondednts without topcoded values
+income.no.topcoded.data <- income.no.topcoded%>% 
+  group_by(sex) %>%
+  summarise(avg.income = mean(income), median.income = median(income))
+kable(income.no.topcoded.data, format = "markdown", caption = "Mean and median for no top-coded")
+
+
+income.data <- income.data.clean %>% 
+  group_by(sex) %>%
+  summarise (avg.income = mean(income), median.income = median(income))
+kable(income.data, format = "markdown", caption = "Mean and median with top-coded")
+
+#plot to demonstrate the top coded values
+ggplot(data = income.data.clean, aes(x = income))+
+  geom_histogram()+
+  ggtitle("Income top-coded included")
+
+```
+
+**We can see the top coded value at the extreme right.**
+
+```{r}
+
+
+#total clean data after removal of all the irrelevant values
+income.data.ultra.clean <- income.data.clean[!income.data.clean$expec.educ %in% c(-2,-3) & 
+                                         !income.data.clean$race %in% c(-1,-2,-4,-5)&
+                                         !income.data.clean$educ %in% c(-1,-2,-4,-5)&
+                                         !income.data.clean$fam.poverty78 %in% c(-3,-4,-5)&
+                                         !income.data.clean$crime.hist %in% c(-3,-5)&
+                                         !income.data.clean$married2000 %in% c(-3,-4,-5)&
+                                         !income.data.clean$income.spouse %in% c(-1,-2,-3,-4,-5)&
+                                         !income.data.clean$famsize12%in% c(-5)&
+                                         !income.data.clean$region %in% c(-4,-5)&
+                                         !income.data.clean$rural %in% c(-4,-5) &
+                                          !income.data.clean$income %in% c(343830),]
+income.data.ultra.clean <- mutate(
+  income.data.ultra.clean, sex = recode_factor(income.data.ultra.clean$sex, `1` ="Male", `2` = "Female"),
+  race = recode_factor(income.data.ultra.clean$race, `1` = "Hispanic", `2` = "Black", `3` ="notBlackHispanic"),
+ fam.poverty78 = recode_factor(income.data.ultra.clean$fam.poverty78, `1` = "InPoverty", `0` = "NotINPOverty"), 
+crime.hist = recode_factor(income.data.ultra.clean$crime.hist, `1` = "Never Charged", `0` = "Charged"),
+married2000 = recode_factor(income.data.ultra.clean$married2000, `0` = "NeverMarried", `1` = "Married", `2` ="separated", `3` = "divorced", `6` = "widowed"), 
+rural = recode_factor(income.data.ultra.clean$rural, `0` = "Rural", `1` = "Urban", `2` ="Unknown"),
+region = recode_factor(income.data.ultra.clean$region, `1` = "Northeast", `2` ="Northcentral", `3` = "South",`4` = "West"))
+
+
+```
+
+**Sex wise break up for the highest earners **
+
+```{r}
+high.earners <- income.data.clean[income.data.clean$income %in% c(343830),]
+
+high.earners <- high.earners %>%
+  group_by(sex)%>%
+  summarise(total = n())
+kable(high.earners, format = "markdown", align = 'c')
+```
+
+>As shown in the table, the males in the `high.earners` are substantially more than females in the top 2%. Removing the top coded values reduces the avg.income wage gap
+
+
+#### **(e)** Creating a function for error bars
+
+For our analysis we have created a function `betterTTestErrorBars`, which allows us to map error bars only after taking the number of observations for a particular value into consideration. If our data has below threshold number of values it returns the same values for upper and lower values. We have assume 5 as the threshold.
+
+```{r}
+# Function to calculate error bars depending upon the minimum sample size, returns the lower, upper and is.signif values
+
+betterTTestErrorBars <- function(x, groups, k = 5, flip.sign = TRUE) {
+  df <- data.frame (x, groups)
+
+  #checking for the flip sign
+if(flip.sign == TRUE){
+  #storing counts in a dataframe
+  count.levels <- df %>%
+    count(groups)
+  
+  #checking for counts
+  if ((count.levels[1,2] >k) && (count.levels[2,2] >k)){
+    
+    #calculating and storing t values
+    lower <- -t.test(x ~ groups)$conf.int[1]
+    upper <- -t.test(x ~ groups)$conf.int[2]
+    if(upper <0 & lower >0){
+      is.signif = 0
+      
+    } else {
+            is.signif = 1
+          }
+    
+  } else {
+        averages <- df %>%
+          group_by(groups)%>%
+          summarise(aveg =mean(x))
+        lower = averages[1,2] -averages[2,2]
+        upper = averages[1,2] -averages[2,2]
+        is.signif <- 0
+      }
+  func.result <- data.frame(lower, upper, is.signif)
+  return(func.result)
+
+} else {
+  count.levels <- df %>%
+    count(groups)
+  
+  if ((count.levels[1,2] >k) & (count.levels[2,2] >k)){
+    lower <- -t.test(x ~ groups)$conf.int[1]
+    upper <- -t.test(x~groups)$conf.int[2]
+    if(lower <0 & upper >0){
+      is.signif = 0
+    } else {
+            is.signif = 1
+          }
+    
+  } else {
+        averages <- df %>%
+          group_by(groups)%>%
+          summarise(aveg =mean(x))
+        lower = -(averages[1,2] -averages[2,2])
+        upper = -(averages[1,2] -averages[2,2])
+        is.signif <- 0
+      }
+  func.result <- data.frame(lower, upper, is.signif)
+  return(func.result)
+  
+}
+}
+```
+
+### 4. Methodology: Analysing the income gap for different factors
+
+In order to successfully determine our objective, we would need to identify relevant varibles which might effect the **income gap**: In order to do so we shall divide our analysis into following four buckets. We would take a representative variable from each bucke to see how it affects the income gap. 
+**Ambition** - representative variables: occupation aspiration and `educ` (education);
+**Social factors**- `race`, `sex` (gender), `married2000` (Marital status)
+**Economic factors**- `fam.poverty78` (family's  poverty status in 1978) ,`income.spouse` (spouse income)
+**Geographic**- `region`, `rural` (rural/urban)
+
+
+Lets start by exploring these variables one by one.
+
+#### **(a)**Comparing income gap on the basis of race
+
+**Comment on Missing Values ** : Once we had corrected for the outcome variable, i.e. we removed the respondents who were not covered for the survey in2012, we did not have any person who did not have race. So, we didnot have tp do any missing value treatment for race. 
+
+In our last comparison, we saw that there exists a difference in the earning for men and women in the data. Now, we want to see if that difference persists with different races. Also, if that difference is same or does it vary for races. IN our comparison , we will look at Hispanic, Black, and Non-Black-Non-Hispanic races(consists of white)
+
+
+**Race and Sex wise break up for income gap**
+
+```{r}
+# Summary table to observe difference of race on final earnings
+race.clean <- income.data.clean
+
+#recoding factors for race
+race.clean <- mutate(race.clean, race = recode_factor(race.clean$race, `1` = "Hispanic", `2` = "Black", `3` = "notBlackHispanic"))
+
+
+# Calculate income gaps (male - female) and 95% confidence intervals for the gap
+race.clean1 <- race.clean %>%
+  group_by(race) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),count = n(),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]] )
+kable(race.clean1, format = "markdown", caption = "Race and Sex wise break up for income gap", digits =c(2,2,2,2,2,2), align = 'c')
+```
+
+Income gap is much larger for the non-black non- hispanic race, which includes white people. The significance level shows if the income gap for that race is significant.
+
+
+
+**Race and Sex wise break up for income gap- no topcoded**
+
+```{r}
+#checking it for no topcoded value
+race.clean <- income.no.topcoded[!income.no.topcoded$race %in% c(-1,-2,-4,-5),]
+
+#recoding factors for race
+race.clean <- mutate(race.clean, race = recode_factor(race.clean$race, `1` = "Hispanic", `2` = "Black", `3` = "notBlackHispanic"))
+
+
+# Calculate income gaps (male - female) and 95% confidence intervals
+# for the gap
+race.clean2 <- race.clean %>%
+  group_by(race) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),count = n(),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]] )
+knitr::kable(race.clean2, format = "markdown", caption ="Race and Sex wise break up for income gap- no topcoded", digits =c(2,2,2,2,2,2), align = 'c')
+
+```
+
+The tables deomstrate that the income gap reduces for all the races, indicating that there are more number of males in the high earner categories.
+
+**Note the severe drop in income gap for whites** indicating that top 2% had substantially more number of White Males than White Females.
+
+```{r, fig.width=10}
+par(mfrow =c(2,1))
+# Re-order the race factor according to gap size
+race.clean1 <- mutate(race.clean1,
+                      race = reorder(race, income.gap))
+
+# Plot, with error bars
+plot1 <- ggplot(data = race.clean1, aes(x = race, y = income.gap, fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Race") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle= "by race with top coded income") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12))  
+
+# Re-order the race factor according to gap size
+race.clean2 <- mutate(race.clean2,
+                      race = reorder(race, income.gap))
+
+# Plot, with error bars
+plot2 <- ggplot(data = race.clean2, aes(x = race, y = income.gap, fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Race") + 
+  ylab("Income gap($)") +
+  ggtitle( "Income gap by sex", subtitle =  "by race after removing topcoded income") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12))  
+
+grid.arrange(plot1, plot2, ncol =2)
+```
+
+
+
+As can be seen from the above graph, the income gap between males and females varies with race- and the difference is statistically significant, the gap is highest for the non-black and non hispanic people, while lowest amongst the black.
+
+After removing the top coded values, the gap persists amongst the races and follows the same order i.e. Blacks have the lowest, followed by the Hispanics and the notblack and not hispanics have the higest income gap. However, the absolute values of the gap reduces for all the three races, implying that the top coded values add to the income gap i.e. more numbers of males are present in the top2 % than females.
+
+**Comment on Missing Values ** : Once we had corrected for the outcome variable, i.e. we removed the respondents who were not covered for the survey in2012, we did not have any person who did not have race. So, we didnot do any missing value treatment. 
+
+
+
+#### **(b)**Comparing Income gap with education
+
+Following table summarise the income gap mean, and error bars argument lower and upper. They also show the number of values available for a particualr group. If the number of values are less than 5 then the function does not cacluate the error bar arguments as the data doesnot make any sense. 
+
+ We have considered education as a factor to properly draw conclusion for each level of study. Later, we will use it as a continuous variable for our model
+
+**This tables shows that the average income gap increases with the education.**
+
+```{r}
+#cleaning data for education
+educ.clean <- income.data.clean[!income.data.clean$educ %in% c(-1,-2,-4,-5),]
+
+#recoding factors for education
+
+educ.clean <- mutate(educ.clean, educ = recode_factor(educ.clean$educ, `0` ="None", `3` = "3rdGrd",`4` ="4thGrd", `5` ="5thGrd", `6` = "6thGrd", `7` = "7ThGrd", `8` = "8thGrd", `9` = "9thGrd", `10` = "10thGrd", `11` = "11thGrd", `12` = "12thGrd", `13` ="1styrCollg", `14` = "2ndyrCollg", `15` = "3rdyrCollg", `16` = "4thyrCollg", `17` = "5thyrCollg", `18` = "6thyrCollg", `19` = "7thyrCollg", `20` = "8thYrcollgOrMmore"))
+
+
+            
+  educ.clean1 <- educ.clean %>%
+  group_by(educ) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),count = n(),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]] )
+kable(educ.clean1, format ="markdown", caption = "Income gap by education-Top-coded included", digits =c(2,2,2,2,2,2), align = 'c')
+
+```
+
+Notice that with few exceptions, the income gap in general increases with increase in the education.
+
+**This table deomstrates the change if the people from the top2% are removed**
+
+```{r}
+#removing rows with topcoded values
+educ.clean2 <- educ.clean %>%
+      mutate(income  = na_if(income, 343830))
+educ.clean2 <- educ.clean2 %>%
+  filter(!is.na(income))
+educ.clean2 <- educ.clean2 %>%
+  group_by(educ) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),count = n(),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]])
+kable(educ.clean2, format = "markdown", caption = "Income gap by education-No Top-coded ", digits =c(2,2,2,2,2,2), align = 'c')
+```
+
+This table deomstrates the change if the people from the top2% are removed, we see that the mean for people with higher education comes down. **Also the drop is more severe for the people with highest edcuation**
+
+```{r, fig.width = 10}
+
+# Plot, with error bars
+plot1<-ggplot(data = educ.clean1, aes(x = educ, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("education") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex",subtitle ="by education including topcoded values") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12), axis.text.x= element_text(angle = 60, vjust = 1, hjust = 1))                        # race = reorder(race, income.gap))
+
+# Plot, with error bars
+plot2 <-ggplot(data = educ.clean2, aes(x = educ, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("education") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle ="by education no top-coded values") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12), axis.text.x= element_text(angle = 60, vjust = 1, hjust = 1))
+
+grid.arrange(plot1, plot2, ncol =2)
+
+```
+
+As can be seen from the above graphs, the income gap between males and females varies with education. In general, at least when we include the top coded values, the income gap seems to increase as the education increases. IN particular after the 6th year of college the income gap is on average greater than $70000, which is huge. Data for those with None education, 3rd grade, 4th grade and 5th grade is not sufficient to make any claims. 
+
+> **Women who go for jobs after higher studies face more income discrimination **
+
+However, when we remove the top coded income for the top2% the income gap seems to disappear from 6th year of college onwards. The gap becomes statistically insignificant. Again impying that if not for those 2%, the income gap disaapears for the higher education.
+
+**Comment on Missing Values ** : Once we had corrected for the outcome variable, i.e. we removed the respondents who were not covered for the survey in 2012, we did not have any person who had a missing value. We noticed the **Zero** level of education and kept it to see its implications. However, the numbers are too small to comment- just 2.
+
+
+#### **(c)** Comparing Income gap by Poverty status during adolescence
+
+The studies have shown that person's endowment during young age defines their choices. Lets see the incmome gap variation with poverty status of their family in the year 1978.
+
+**Following tables show the mean income variation with poverty status for the data which has top coded values**
+
+```{r}
+#cleaning data for poverty
+fam.poverty.clean <- income.data.clean[!income.data.clean$fam.poverty78 %in% c(-3),]
+
+
+
+#recoding the factors
+fam.poverty.clean <- mutate(fam.poverty.clean, fam.poverty78 = recode_factor(fam.poverty.clean$fam.poverty78, `1` = "InPoverty", `0` = "NotINPOverty"))
+
+
+#summary table for poverty status
+fam.poverty.clean1 <- fam.poverty.clean %>%
+  group_by(fam.poverty78) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(fam.poverty.clean1, format = "markdown", digits = c(2,2,2,2,0,0), align = 'c')
+```
+
+This is interesting, people who lived in `NotInPoverty` (richer families in 1978) have a higher income gap, in comparison to those who lived in poor families
+
+**This table reflects the same as above but after having removed the top coded values for income**
+
+```{r}
+
+
+#removing rows with topcoded values
+fam.poverty.clean2 <- fam.poverty.clean %>%
+      mutate(income  = na_if(income, 343830))
+fam.poverty.clean2 <- fam.poverty.clean2 %>%
+  filter(!is.na(income))
+
+#summary table for poverty status
+fam.poverty.clean2 <- fam.poverty.clean2 %>%
+  group_by(fam.poverty78) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(fam.poverty.clean2, format ="markdown", digits = c(2,2,2,2,0,0), align = 'c')
+
+```
+
+The income gap values for those who lived in poor families did not change much, indicating there were not many who reached the top 2% income bracket from this group. On the other hand, the richer people had a massive drop in their income gap. Lot of Men in Rich-People club from this group.
+
+```{r, fig.width=10}
+
+#plotting the findings
+plot1 <- ggplot(data = fam.poverty.clean1, aes(x = fam.poverty78, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Poverty Status in 1978") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle =  "by their poverty status with topcoded") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12))  
+
+#plotting the findings
+plot2 <- ggplot(data = fam.poverty.clean2, aes(x = fam.poverty78, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Poverty Status in 1978") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle =" by their poverty status without topcoded") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12))  
+
+grid.arrange(plot1, plot2, ncol =2)
+```
+
+
+The graph tells us that the poverty status at the time of birth influences the income gap later. As poverty status at childhood would define the endowments and opportunities one gets in life. It makes sense that it would influence the incomes. As it seems from the graph it influences the income gap as well. Income gap is more for the people who were not born in poor family and its highly statistically significant.
+
+Once, we remove the top coded values, the difference still persists and remains statistically significant. however, the average value of the income gap drops. The drop is more in the people who do not come from poor back ground,implying that 
+more number of males are in top 2%, who do not come from poor background.
+
+**Comment on Missing Values ** : Once we had corrected for the outcome variable, i.e. we removed the respondents who were not covered for the survey in 2012, we had 2491 invalid skips(-3), since the data dictionary was silent about this valid skip we removed those. 
+
+
+#### **(d)** Income gap by criminal history
+
+Criminal history at early career stage may affect one's chances to get jobs. Do they affect equally for different sexes,
+lets see
+
+
+
+```{r}
+#cleaning data for criminal history
+criminal.history.clean <-  income.data.clean[!income.data.clean$crime.hist %in% c(-1,-2,-3,-4,-5,-6),]
+
+#recoding the factors
+criminal.history.clean <- mutate(criminal.history.clean, crime.hist = recode_factor(criminal.history.clean$crime.hist, `1` = "Never Charged", `0` = "Charged"))
+
+
+#summary table for criminal history
+criminal.history.clean1 <- criminal.history.clean %>%
+  group_by(crime.hist) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(criminal.history.clean1, format = "markdown", caption = "sexwise income gap with topcoded", digits =c(2,2,2,2,0,0))
+```
+
+**These tables lists down the average income gap for the crime status aftre removing top-coded values** 
+```{r}
+#removing rows with topcoded values
+criminal.history.clean2 <- criminal.history.clean %>%
+      mutate(income  = na_if(income, 343830))
+criminal.history.clean2 <- criminal.history.clean2 %>%
+  filter(!is.na(income))
+
+#summary table for criminal history
+criminal.history.clean2 <- criminal.history.clean2 %>%
+  group_by(crime.hist) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(criminal.history.clean2, format = "markdown", caption = "sexwise income gap without topcoded",digits =c(2,2,2,2,0,0))
+
+
+
+```
+
+The income gap drops once we reomve the top 2% earners. Detailed analysis in the following graph.
+
+
+```{r, fig.width=10}
+#plotting the findings
+
+plot1 <- ggplot(data = criminal.history.clean1, aes(x = as.factor(crime.hist), y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Person ever charged for crime") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle ="by criminal history with topcoded values") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12)) 
+
+#plotting the findings
+
+plot2 <- ggplot(data = criminal.history.clean2, aes(x = as.factor(crime.hist), y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Person ever charged for crime") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle = "by their criminal history without topcoded values") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12)) 
+
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+This tells us that the income gap varies with the crimminal history. The income gap amongst people who have been charged is significantly higher thant those who have never been charges. Implying, that criminal history affects the income of woman more than man's.
+
+Even after removing the top coded values the difference between the income gap for different charge status remains,
+even though the average income gap reduces for both the categories.
+
+**Comment on Missing Values ** : After correcting for the outcome variable, we checked for any missing values as this could a suspect variable not many people would like to report on this. However, after analysing data, we could find only 5 invalid skips(-3), which were too less to derive any trend, so we removed them. 545 were non-interviews(-5).
+
+#### **(e)** Income gap by marital status
+
+Marriage might affect the men and women separately . A woman might be expected to take up jobs with more flexible timings at the expense of income to look after family. 
+
+Lets see if our bias seems to be right.
+
+**The following tables give us an insight into the income gap based on their marital status**
+
+```{r}
+#cleaning data for marriage for those in 2000
+marriage.clean <- income.data.clean[!income.data.clean$married2000 %in% c(-3,-4,-5),]
+
+#recoding the factors
+marriage.clean <- mutate(marriage.clean, married2000 = recode_factor(marriage.clean$married2000, `0` = "NeverMarried", `1` = "Married", `2` ="separated", `3` = "divorced", `6` = "widowed") )
+
+#summary table for criminal history
+marriage.clean1 <- marriage.clean %>%
+  group_by(married2000) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(marriage.clean1, format = "markdown", caption = "summary table sex wise income gap for marital status", digits =c(0,2,2,2,0,0))
+
+# Re-order the marital status according to gap size
+marriage.clean1 <- mutate(marriage.clean1,
+                      married2000 = reorder(married2000, income.gap))
+```
+
+**The following tables give us an insight into the income gap based on their marital status after removing top-coded**
+
+```{r}
+#removing rows with topcoded values
+marriage.clean2 <- marriage.clean %>%
+      mutate(income  = na_if(income, 343830))
+income.no.topcoded <- income.no.topcoded %>%
+  filter(!is.na(income))
+
+#summary table for criminal history
+marriage.clean2 <- marriage.clean2 %>%
+  group_by(married2000) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(marriage.clean2, format = "markdown", caption = "summary table sex wise income gap for marital status", digits =c(0,2,2,2,0,0))
+
+```
+
+Clearly, the income gap is largest in the married groups. Our intuition seems to be right. MOre analysis at the end of the graph.
+
+```{r, fig.width=10}
+# Re-order the marital status according to gap size
+marriage.clean2 <- mutate(marriage.clean2,
+                      married2000 = reorder(married2000, income.gap))
+
+#plotting the findings
+
+plot1 <- ggplot(data = marriage.clean1, aes(x = married2000, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Marital Status") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle ="by their marital status with top coded") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+ theme(text = element_text(size=12), axis.text.x= element_text(angle = 60, vjust = 1, hjust = 1))
+
+#plotting the findings
+
+plot2 <- ggplot(data = marriage.clean2, aes(x = married2000, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Marital Status") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle="by their marital status without top coded ") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+ theme(text = element_text(size=12), axis.text.x= element_text(angle = 60, vjust = 1, hjust = 1))
+
+grid.arrange(plot1, plot2, ncol =2)
+```
+
+The income gap is not statistically significant amongst people who never married or widowed. While the Married people have the highest income gap amongst them. Divorced people have just statistically significant difference in their income. Income gap amongst people who are married is significantly greater than those who separated,
+
+> **Married People have the highest income gap on average for other things being constant **
+
+When the top code value are removed. The differences amongst divorcees and separated people switch places, remaining show the same trend, albeit with lesser average income gap amongst all. In fact the income average gap amongst never married reverses, though statistically not significant.
+
+**Comment on Missing Values ** : After correcting for the outcome variable, we checked for any missing values as this could a suspect variable not many people would like to report on this. We found no missing values except three invalid skps(-3) and one valid skip(-4), we removed both as they were insufficient to make any conclusions.
+
+#### **(f)** Income gap by family size
+
+
+Does family size affect the income gap, certainly larger families would mean greater responsibilities. Do those responsibilitites are shouldered equally by males and females. Lets put our assumption to test.
+
+** The following tables gives us the income gap based on the family size **
+
+```{r}
+#cleaning family size in 2012 column
+
+famsize.clean <-income.data.clean[!income.data.clean$famsize12 %in% c(-5),]
+
+
+
+# recoding the factors for family size
+
+famsize.clean <- mutate(famsize.clean, famsize12 = as.factor(famsize12))
+famsize.clean <- mutate(famsize.clean, famsize12 = recode_factor(famsize.clean$famsize12, `10` = "10+", `11` = "10+", `12` = "10+", `16` = "10+") )
+
+#summary table for criminal history
+famsize.clean1 <- famsize.clean %>%
+  group_by(famsize12) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(famsize.clean1, format ="markdown", caption = "sex wise income gap with marital status with topcoded", digits = c(0,2,2,2,0))
+```
+
+** The following tables gives us the income gap based on the family size after removing top-coded values **
+
+```{r}
+
+# Re-order the famsize according to gap size
+famsize.clean1 <- mutate(famsize.clean1,
+                      famsize12 = reorder(famsize12, income.gap))
+
+##removing rows with topcoded values
+famsize.clean2 <- famsize.clean %>%
+      mutate(income  = na_if(income, 343830))
+famsize.clean2<- famsize.clean2 %>%
+  filter(!is.na(income))
+
+#summary table for criminal history
+famsize.clean2 <- famsize.clean2 %>%
+  group_by(famsize12) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(famsize.clean2, format ="markdown", caption = "sex wise income gap with marital status No topcoded", digits = c(0,2,2,2,0))
+```
+
+
+
+```{r, fig.width=10}
+# Re-order the famsize according to gap size
+famsize.clean2 <- mutate(famsize.clean2,
+                      famsize12 = reorder(famsize12, income.gap))
+
+#plotting the findings
+
+plot1 <- ggplot(data = famsize.clean1, aes(x = famsize12, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Family Size") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle ="by their family size in 2012-topcoded") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12)) 
+
+
+#plotting the findings
+
+plot2 <- ggplot(data = famsize.clean2, aes(x = famsize12, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Family Size") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle="by their family size in 2012- no topcoded") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12)) 
+
+grid.arrange(plot1, plot2, ncol =2)
+```
+
+
+The income gap between males and females seems to increase with family size. Those with family size of 4 and 5 have the highest income gap amongst them and are significantly higher than those of those with family size of 1,2 and 3.  The families with size 9 and 10+ do not have sufficient data to make conclusions about them.Those with family size of 7 and 8 do not have statistically difference between the income for males and females.
+
+Post removal of the top coded values, the trend remains similar to those of earlier values. 
+
+#### **(g)**Income gap by the area of living - whether rural/urban
+
+Both rural and urban areas have different culture, level of development and community involvement. Does all those thing matter when we talk about income gap. We would be testing that hypothesis in the following data.
+
+** The following table gives the insights into the average income gap for the people living in rural and urban area **
+
+```{r}
+# cleaning the rural urban data
+rural.clean <- income.data.clean[!income.data.clean$rural %in% c(-4,-5, 2),]
+
+# recoding the factors for rural data
+
+rural.clean <-  mutate(rural.clean, rural = recode_factor(rural.clean$rural, `0` = "Rural", `1` = "Urban", `2` ="Unknown"))
+
+#summary table for criminal history
+rural.clean1 <- rural.clean %>%
+  group_by(rural) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(rural.clean1, format ="markdown", caption = "summary table for income gap for people in rural urban area", digits = c(0,2,2,2,0))
+
+# Re-order the marital status according to gap size
+rural.clean1 <- mutate(rural.clean1,
+                      rural = reorder(rural, income.gap))
+```
+
+** The following table gives the insights into the average income gap for the people living in rural and urban area agter removing topcoded income  **
+
+```{r}
+##removing rows with topcoded values
+rural.clean2 <- rural.clean %>%
+      mutate(income  = na_if(income, 343830))
+rural.clean2<- rural.clean2 %>%
+  filter(!is.na(income))
+
+#summary table for criminal history
+rural.clean2 <- rural.clean2 %>%
+  group_by(rural) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(rural.clean2, format ="markdown", caption = "summary table for income gap for people in rural urban area-no top coded", digits = c(0,2,2,2,0))
+
+# Re-order the marital status according to gap size
+rural.clean2 <- mutate(rural.clean2,
+                      rural = reorder(rural, income.gap))
+
+```
+
+The urban areas have higher income gap, however once we remove the rop coded values the trend reverses, implying that a large chunk from the top 2% come from urban areas, which makes sense.
+
+```{r, fig.width=10}
+#plotting the findings
+
+plot1<-ggplot(data = rural.clean1, aes(x = rural, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Living in Rural Or Urban area") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle ="by living in rural/urban area with topcoded values") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12)) 
+
+#plotting the findings
+
+plot2<-ggplot(data = rural.clean2, aes(x = rural, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Living in Rural Or Urban area") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle ="by living in rural/urban area without topcoded values") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12)) 
+  
+  grid.arrange(plot1, plot2, ncol =2)
+```
+
+
+The income gap between males and females seems to increase in urban areas than in rural areas. However, the difference is not statistically significant.
+
+MOreover, once the top coded values are removed, the difference becomes even more insignificant.
+
+**Comment on Missing Values ** : After correcting for the outcome variable, we checked for any missing values  we could not find any missing values.
+
+#### **(h)** Income gap by regions
+
+Different regions have different level of development, Let us analyse if the region decides the income gap and does it vary for difernt regions
+
+**The following tables demonstrate the income gap variation for different regions**
+
+```{r}
+#cleaning the  region
+region.clean <- income.data.clean[!(income.data.clean$region %in% c(-1,-2,-3,-4,-5,-6)),] 
+
+
+#recoding the factors regions
+  region.clean <- mutate(region.clean, region = recode_factor(region.clean$region, `1` = "Northeast", `2` ="Northcentral", `3` = "South",`4` = "West"))
+  
+#summary table for criminal history
+region.clean1 <- region.clean %>%
+  group_by(region) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(region.clean1, format = "markdown", caption = "region wise income gap with topcoded data", digits = c(0,2,2,2,0))
+
+# Re-order the marital status according to gap size
+region.clean1 <- mutate(region.clean1,
+                      region = reorder(region, income.gap))
+```
+
+
+**The following tables demonstrate the income gap variation for different regions after removing top-coded values**
+
+```{r}
+##removing rows with topcoded values
+region.clean2 <- region.clean %>%
+      mutate(income  = na_if(income, 343830))
+region.clean2<- region.clean2 %>%
+  filter(!is.na(income))
+
+#summary table for criminal history
+region.clean2 <- region.clean2 %>%
+  group_by(region) %>%
+  summarize(income.gap = mean(income[sex == "Male"], na.rm = TRUE) -
+              mean(income[sex == "Female"], na.rm = TRUE),
+            lower = -betterTTestErrorBars(income,sex, flip.sign = FALSE)[[1]],
+            upper = -betterTTestErrorBars(income,sex,flip.sign = FALSE)[[2]],
+            is.significant = betterTTestErrorBars(income,sex, flip.sign = FALSE)[[3]], count = n())
+kable(region.clean2, format ="markdown", caption = "region wise income gap without topcoded data", digits =c(0,2,2,2,0))
+
+# Re-order the marital status according to gap size
+region.clean2 <- mutate(region.clean2,
+                      region = reorder(region, income.gap))
+
+```
+
+Analysis is given alongwith the following graph
+
+
+```{r, fig.width=10}
+#plotting the findings
+
+plot1 <- ggplot(data = region.clean1, aes(x = region, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Region") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle="by the region they live in with top coded ") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12)) 
+
+
+#plotting the findings
+
+plot2 <-ggplot(data = region.clean2, aes(x = region, y = income.gap,
+                            fill = is.significant)) +
+  geom_bar(stat = "identity") +
+  xlab("Region") + 
+  ylab("Income gap($)") +
+  ggtitle("Income gap by sex", subtitle = "by the region they live in Without topcoded ") + 
+  guides(fill = FALSE) +
+  geom_errorbar(aes(ymax = upper, ymin = lower), width = 0.1, size = 1) +
+  theme(text = element_text(size=12)) 
+
+grid.arrange(plot1, plot2, ncol =2)
+
+
+
+```
+
+The income gap between males and females seems to be highest for the people in the northeast region. With in regions the income gap is lowest in south and is statistically significantly lower thant that of north east region. West has slightly higher income gap than south, however, the difference is not statistically significnant.
+
+> ** NOrth East witnesses the sharpest drop when top coded values removed, More Rich Men Come from the NorthEast region
+
+Once, we remove the top coded values for the top 2% of the income earners we see the changes amongs region. The North east region falls to the 3rd place. Implying that the earlier income gap was coming from the top 2% people and reduced as thery were removed, Across regions the income gap becomes insignificant.
+
+**Comment on Missing Values ** : After correcting for the outcome variable, we checked for any missing values, we could find 60 valid skips (-4). we checked for trend, however they did not show any trend so we removed those.
+
+### 4. Correlation amongst the shortlisted factors
+
+In order to see if there is any high correlation for the factors we have shortlisted for our models: `race`, `educ` (education), `fam.poverty78` (family's poverty status in 1978), `crime.hist` (criminal history), `income.spouse`, `region`, `rural`(whether live in rural or urban area). By doing so , we can figure out the variables we would like to drop, in case of very high correlation. As that might affect our model.
+
+```{r, fig.height = 15, fig.width = 15, cache = TRUE}
+
+
+ggpairs(income.data.clean[,c( "race","sex","fam.poverty78","crime.hist","income.spouse",  "region", "educ", "rural")], axisLabels = "internal")
+
+```
+
+Looking at the above plot, we know that there are not covariates which have high correlation. So, we can go ahead and include in our model.
+
+There seems to be a small positive correlation between income of spouse and education. However, its not big enough to impact our analysis.
+
+### 5. Findings
+
+Now that we have have analysed several relevant variables. Lets try to build a linear model for them. For this we will start from the simplest model and then increase the number of control variables to distill out the income variation by sex.
+
+> **linear regression** will allow us to model linear relationship between our outcome variable income, $y$, and a set of covariates $xs$ to explore the average impact of those variables with gender.
+
+> Another point to note in the following analysis is that because our problem statement asks for **Income Gap** and **variables** affecting the  **Income Gap** we would focus more on the income gap variation as against the variables affecting just income. i.e. focus would be on interaction terms.
+
+
+#### Modeling income with gender
+
+In the very first step we want to test the NULL Hypothesis that income of men and women are similar.
+
+```{r}
+#linear model
+lm.sex <- lm(income~sex, data = income.data.ultra.clean)
+
+#summary stats
+kable(summary(lm.sex)$coef,format ="markdown", digits = c(2,2,2,4) )
+
+```
+The p value is <0.05 so our coefficient is statistically significant at alpha =0.05. We can reject the NULL hypothesis and conclude that there is statistically significant difference between incomes of males and females.
+
+>The regression shows that on average females earn `r -round(coef(lm.sex)["sexFemale"], 0)` USD less than their male counterpart holding other things constant.
+
+#### Adding race and interaction
+
+We believe that the existing income gap would vary with several factors. As demonstrated above. 
+
+
+We want to see if the **income gap varies with different races.** 
+
+```{r}
+#linear model
+lm.race.int <-  lm(income~sex + race + sex*race , data = income.data.ultra.clean)
+
+#summary stats
+kable(summary(lm.race.int)$coef,format ="markdown", digits = c(2,2,2,4) )
+
+
+```
+
+The regression shows that on average females earn `r -round(coef(lm.race.int)["sexFemale:racenotBlackHispanic"], 0)` USD less than their male counterpart holding other things constant.
+
+The **incomegap between non black-nonhispanic men and women(White included) is considerably larger than the income gap between men and women of hispanic race.** On average the income gap is larger by approximately `r -round(coef(lm.race.int)["sexFemale:racenotBlackHispanic"], 0)` holding other things constant, and is statistically significant. For Black men and women the income gap improves slightly in comparison to hispanic men and women. However, that difference is not statistically significant.
+
+
+
+#### Adding education and interaction
+
+```{r}
+#lm model
+lm.educ.int <- lm(income~sex + educ + sex*educ, data = income.data.ultra.clean)
+
+#summary stats
+kable(summary(lm.educ.int)$coef,format ="markdown", digits = c(2,2,2,4) )
+```
+
+For the given model the p value is less than 0.05 for our interaction coefficient. Education seems to excarbate the income gap between male and females. 
+
+On average for a increase in year of schooling the income gap between men and women increases by `r -round(coef(lm.educ.int)["sexFemale:educ"], 0)` USD other things held constant.
+
+>This is classic example of how even though education seems to positively impact the income of individual it actually worsens the income gap.
+
+##### checking if adding education makes our model more credible
+```{r}
+anova(lm.sex, lm.educ.int)
+```
+
+As can be seen the p value is significantly lower than 0.05 and `RSS` (Residual Sum of Squares) decreases substantially, thus adding interaction and education explains our model better
+
+#### adding poverty status during childhood
+Lets add the poverty status to our model
+
+```{r}
+#lm.model
+lm.poverty.int <- lm(income ~ sex + fam.poverty78 + fam.poverty78*sex, data = income.data.ultra.clean)
+
+#summary stats
+kable(summary(lm.poverty.int)$coef,format ="markdown", digits = c(2,2,2,4) )
+```
+
+The p value for our interaction coefficient is < 0.05. So our coefficient is statistically significant. The income gap between males and females worsens for those who are rich in comparison to those who are poor . i.e. Amongst rich people the income gap between men and women is on average higher by  `r -round(coef(lm.poverty.int)["sexFemale:fam.poverty78NotINPOverty"],0)` $ than the income gap between men and women in poor people for other things constant.
+
+> this is another example where even though the income of women who were born in richer families increases by on average `r -round(coef(lm.poverty.int)["fam.poverty78NotINPOverty"], 0)` $  ceteris paribus, the income gap for them worsens by `r -round(coef(lm.poverty.int)["sexFemale:fam.poverty78NotINPOverty"],0)` $ on average ceteris paribus
+
+
+#### Adding rural, region, spouse income interactions
+
+Lets add the remaining interactions, which we analysed in the first part to see if the income gap varies with them
+```{r}
+#lm.model
+lm.all.int <- lm(income~sex+race+educ+fam.poverty78+rural+region+income.spouse + sex*race + educ*sex + fam.poverty78*sex +rural *sex + region*sex + income.spouse *sex, data = income.data.ultra.clean)
+
+
+#summary stats
+kable(summary(lm.all.int)$coef,format ="markdown", digits = c(2,2,2,4) )
+
+# R2 coefficient of determination
+
+
+```
+ 
+ The points to note from this analysis are that
+ 1. `Race`, `educ`(education),`income.spouse`(spouse income), `rural`(whether living in urban areas) tend to worsen the income gap between males and females and all these are statistically significant at alpha = 0.05
+ 2. `income.spouse` is an interesting variable. On average for every 3$ increase in income of spouse the income of counterpart on average increases by 7 USD for all else constant. However, the corresponding income gap worsens by  11 USD on average, for other things being constant.
+ 3. `rural` (whether person lives in rural or urban area) variable affects the income gap as well. The urban area has on average `r -round(coef(lm.poverty.int)["sexFemale:ruralUrban"],0)` USD less income gap ceteris paribus. 
+ 4. `region` (region peopl live in) is insignificant when it comes to income gap.
+ 5. In the last example we saw that family poverty status had an adverse impact for the income gap betwen men and women. However, as soon as we control for these other variables the impact becomes insginificant.This indicates that our family poverty status had confounding variables.
+ 6. In the factors we consider, none of the factors seem to improve the income gap. All were either insignificant or worsened the income gap between men and women.
+ 
+ **> It is worth mentioning again that all these findings pertain to the income gap interpretations only. When we say that the X factor worsens the income gap or X has no effect on income gap it is different than syaing that X worsens the income or X has no effect on income: Case in Point `educ` (years of education) and `fam.poverty78` (Poverty status of family in 1978) both the variables positively affect income but worsens the income gap**
+ 
+ > The coefficient of determination for our model comes out to be `r summary(lm.all.int)$r.squared`
+ 
+ 
+ ##### `ANOVA` to see if model adds value
+ 
+```{r}
+anova(lm.race.int, lm.all.int)
+
+
+
+```
+
+The p value is < 0.05, also the `RSS` (Residual Sum Squared) decreases substantially, thus are model considerably improved by including other co-variates and better explains the income gap.
+
+#### Daiganostics Plot for our model
+
+We want to see if the model we fitted makes sense. to do that we `plot` our model.
+
+```{r, fig.width=10, fig.height=10}
+par(mfrow = c(2, 2))
+plot(lm.all.int)
+```
+
+These four plots are important diagnostic tools in assessing whether the linear model is appropriate.  The first two plots are the most important, but the last two can also help with identifying outliers and non-linearities.  
+
+**Residuals vs. Fitted** 
+Our model seems to have a clear trend however, the variance is not constant but varies across the data. Which implies that linear model might not give us the best estimates.
+  
+
+**Normal QQ plot**
+
+Our data is apporximaetly normal, we have a heavier tail but we can still use the linear model for our purposes as we are dealing with large number fo values.
+
+**Scale-location plot** 
+This clearly shows a tren d in our data, indicating that we might be better off with non-linear model
+
+**Residuals vs Leverage**.  
+We can not observe any outliers for our data, once we have removed the top coded income.
+
+#### Trying a log transformation
+
+
+IN the above discussion, we noticed that our residual vs fitted plot had a trend, lets see if that changes with the log transformation
+```{r, fig.width=10, fig.height = 10}
+ # removing the non-earners or those with zero income
+income.data.ultra.clean.new <- income.data.ultra.clean[!income.data.ultra.clean$income %in% c(0),]
+income.data.ultra.clean.new <- mutate(income.data.ultra.clean.new, income = log(income))
+
+
+lm.all.int.log <- lm(income~sex+race+educ+fam.poverty78+rural+region+income.spouse + sex*race + educ*sex + fam.poverty78*sex +rural *sex + region*sex + income.spouse *sex, data = income.data.ultra.clean.new)
+
+par(mfrow = c(2, 2))
+plot(lm.all.int.log)
+
+```
+
+
+
+As the plot reveals the transformation of our model into log substantially improves the credibility of our model.
+
+**Residuals vs. Fitted** 
+Our model does not show any trend, in addition the heteroskedesticity comes down/
+  
+
+**Normal QQ plot**
+
+Our data is apporximaetly normal, we have a heavier tail but we can still use the linear model for our purposes as we are dealing with large number fo values.
+
+**Scale-location plot** 
+No clear trend visible now, linear model might work
+
+**Residuals vs Leverage**.  
+We can not observe any outliers for our data, once we have removed the top coded income.
+
+#### noting the impact of removing earners with zero income
+
+>**CAUTION** Since the log value can not take `0` as argument, we removed those with zero as income. However, this may substantially change our analysis.
+
+```{r}
+income.data.ultra.clean.new1 <- income.data.ultra.clean[income.data.ultra.clean$income %in% c(0),]
+
+zero.income <- income.data.ultra.clean.new1 %>%
+  group_by(sex)%>%
+  summarise (no.zero.income = n() )
+
+kable(zero.income, format = "html", caption = "People reported zero as wage or income")
+
+```
+Since, we are removing these in our log transformed model, we might be overestimating the means of female income more in comparison to males. i.e. we might be underestimating the income.gap between different sexes.
+
+#### Interpreting the log transformed model
+```{r}
+#summary stats
+kable(summary(lm.all.int.log)$coef,format ="markdown", digits = c(2,2,2,4) )
+
+```
+
+
+>We see that number of variables which were statistically significant for our earlier model have come down. We can not be sure if the change is due to log transformation or due to the fact that we removed more number of females having zero income than the males while transforming.
+
+1.Living in urban area, no longer impacts the income gap between females and males. 
+2.Income of spouse has become immaterial.
+3.The education level increases the income gap,
+4.Not black and not hispanics have considerably larger income gap than either Blacks or Hispanics
+5.Region does not impact the income gap by sexes
+6.Family's poverty status in 1978 does not effect the income gap.
+
+
+### 6. Discussion
+
+#### Main Conclusions
+
+##### LInear Model Without Log Transformation
+
+> Income gap between Men and Women is widely prevalent.
+
+For the Linear Model without log Transformation tells us that:
+1. `Race`, `educ`(education),`income.spouse`(spouse income), `rural`(whether living in urban areas) tend to worsen the income gap between males and females and all these are statistically significant at alpha = 0.05
+2. `region` (region people live in) is insignificant when it comes to income gap.
+3. The family poverty status had an adverse impact for the income gap betwen men and women. However, as soon as we control for these other variables the impact becomes insginificant.
+4. In the factors we consider, none of the factors seem to improve the income gap. All were either insignificant or worsened the income gap between men and women.
+
+> None of the factors we considered improved the income gap.
+
+##### Linear Model With Log Transformation
+
+We also observed that our simple linear model did not pass the diaganostic plots test and the residual vs fitted plot showed a trend. To over come this we transformed our outcome variable y to `log(income)`, which made our model a little better.
+
+1.Living in urban area, no longer impacted the income gap between females and males. 
+2.Income of spouse has became immaterial.
+3.The education level increases the income gap,
+4.Not black and not hispanics (Whites) have considerably larger income gap than either Blacks or Hispanics
+5.Region and Family's poverty status had no impact on the income gap by sexes
+
+##### Areas for improvement in our model
+
+1. While carrying out top-coded analysis, we removed the top income for top 2% of earners, as majority of those were Men. In our improvement, we underestimated the income gap.
+2. While making log transformation, we removed the people with zero income, as most of them were women, again the model underestimated the average income gap. ** we could have replaced the income with zero to 1 $, value wise it would not have made difference and we would not have lost those number of rows **
+3. There are 70 variables in the data of them we analysed only 8. There could be several other factors which would impact the income gap amongst different gender. For eg: Occupation could be one parameter which might impact the income gap
+4. Despite all, our model successfully shows that the income gap is highly prevalent across society even after controlling for several parameters. The income gap remained significant.
+
+
+##### My confidence Level
+
+The analysis takes into consideration wide ranges of buckets: Social, Economic, Geographic and Criminal History. With all that I am confident that the income gap between men and women is `real and measurable`. However, I would showcase my model with caution as there are number of other variables I could have considered which would have answered anticipated questions of policymakers.
